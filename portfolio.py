@@ -45,9 +45,9 @@ def load_data():
     # Factor proxies mapping
     factors = {
         "us": "SPY",
-        "intl": "ACWI",
+        "intl": "ACWI", 
         "small": "IJR",
-        "large": "SPY",
+        "large": "IVV",  # Use IVV instead of SPY to differentiate
         "value": "IVE",
         "growth": "IVW",
         "momentum": "SPMO",
@@ -92,16 +92,46 @@ def calculate_exposures(R, F, tickers, factors):
 
 # Optimization functions
 def optimize_weights(E, target):
-    """Optimize portfolio weights using least squares"""
+    """Optimize portfolio weights using least squares with constraints"""
     n = E.shape[0]
+    
+    # Weighted objective - penalize unwanted exposures more heavily
     def objective(w):
-        return np.sum((E.T.dot(w) - target)**2)
-    cons = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
+        actual = E.T.dot(w)
+        errors = actual - target
+        # 3x penalty for factors that should be zero
+        weights = np.where(target == 0, 3.0, 1.0)
+        return np.sum(weights * errors**2)
+    
+    # Constraints
+    constraints = [
+        {'type': 'eq', 'fun': lambda w: np.sum(w) - 1},  # weights sum to 1
+    ]
+    
+    # Add hard constraints for zero-target factors  
+    for i in range(len(target)):
+        if target[i] == 0:
+            # Limit unwanted factor exposure to max 5%
+            def make_constraint(idx):
+                return lambda w: 0.05 - abs(E[:, idx].T.dot(w))
+            constraints.append({
+                'type': 'ineq', 
+                'fun': make_constraint(i)
+            })
+    
     bounds = [(0, 1)] * n
     x0 = np.ones(n) / n
-    res = minimize(objective, x0, method="SLSQP", bounds=bounds, constraints=cons)
+    
+    res = minimize(objective, x0, method="SLSQP", bounds=bounds, constraints=constraints)
     if not res.success:
-        raise RuntimeError("Optimization failed: " + res.message)
+        # Fall back to original method if constrained optimization fails
+        def simple_objective(w):
+            return np.sum((E.T.dot(w) - target)**2)
+        simple_cons = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
+        res = minimize(simple_objective, x0, method="SLSQP", bounds=bounds, constraints=simple_cons)
+        if not res.success:
+            raise RuntimeError("Optimization failed: " + res.message)
+    
     return res.x
 
 def score_portfolio(etf_subset, exposures, target):
