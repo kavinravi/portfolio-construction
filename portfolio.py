@@ -419,7 +419,11 @@ def main():
             st.dataframe(exposures.round(4))
             
             st.subheader("Correlation Matrix")
-            correlation_matrix = R[list(combo) + ['SPY']].corr()
+            # Ensure SPY is included without duplication
+            etfs_for_corr = list(combo)
+            if 'SPY' not in etfs_for_corr:
+                etfs_for_corr.append('SPY')
+            correlation_matrix = R[etfs_for_corr].corr()
             st.dataframe(correlation_matrix.round(3))
             
             st.subheader("Rolling Returns (30-day)")
