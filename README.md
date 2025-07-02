@@ -1,6 +1,6 @@
 # Factor-Based Portfolio Optimization Tool
 
-A simple, interactive Streamlit app that helps you build ETF portfolios by targeting specific factor exposures—value, growth, momentum, quality, and more—and then compares your optimized blend against the SPY benchmark.
+A simple, interactive Streamlit app that helps you build ETF portfolios by targeting specific factor exposure and then compares your optimized blend against the SPY benchmark.
 
 ---
 
@@ -13,7 +13,7 @@ Traditional investors know that broad-market ETFs (like SPY) capture the overall
 - **Optimizes** a portfolio of N ETFs to match your chosen mix of factor weights
 - **Visualizes** portfolio composition, factor exposures, and performance vs. SPY
 
-No heavy programming required—just clone, install the requirements, and launch the app.
+No heavy programming required. Just clone, install the requirements, and launch the app. Or, for an even easier start, just visit the cloud deployment link (below). 
 
 ---
 
@@ -50,18 +50,18 @@ Use the sidebar to set factor weights and the number of ETFs, then click **Optim
 1. **Factor Exposures**
 
    - The app treats each ETF’s daily returns as a blend of standard factors: **US equity**, **International**, **Small-cap**, **Value**, **Growth**, **Momentum**, **Quality**.
-   - It runs a straightforward linear regression to estimate each ETF’s factor loadings.
+   - It runs a linear regression to estimate each ETF’s factor loadings.
 
 2. **Portfolio Optimization**
 
    - You set your target mix (e.g., 40% value, 20% growth, 20% momentum, 20% quality).
-   - Choose how many ETFs (N) to include.
+   - Choose how many ETFs (n) to include.
    - The app evaluates combinations and weightings to minimize the gap between actual vs. target exposures, under a 0–100% weight constraint summing to 100%.
 
 3. **Performance Analysis**
 
    - Benchmarks your optimized portfolio against SPY on metrics like total return, annualized return, volatility, Sharpe ratio, drawdown, beta, and information ratio.
-   - Plots the cumulative growth of a \$100 K starting capital over the backtest period.
+   - Plots the cumulative growth of a \$1 M starting capital over the backtest period.
 
 ---
 
