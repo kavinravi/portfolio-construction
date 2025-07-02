@@ -348,7 +348,7 @@ def main():
             st.subheader("Cumulative Performance")
             
             # Calculate cumulative returns
-            initial_capital = 100000
+            initial_capital = 1000000
             cum_portfolio = (1 + port_rets).cumprod() * initial_capital
             cum_spy = (1 + spy_rets).cumprod() * initial_capital
             
