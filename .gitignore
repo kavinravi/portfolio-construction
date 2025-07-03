@@ -147,3 +147,6 @@ ehthumbs.db
 Desktop.ini
 
 # NOTE: data/ folder is intentionally NOT ignored so it can be shared between devices 
+
+# Project-specific files
+GEMINI.md

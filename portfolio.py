@@ -17,31 +17,16 @@ st.markdown("This tool optimizes ETF portfolios based on factor exposure targeti
 # Load data function
 @st.cache_data
 def load_data():
-    """Load and process all ETF data"""
+    """Load and process all ETF data from the data/ directory"""
     
-    # Define tickers and their CSV filenames (updated paths)
-    tickers = {
-        "ACWI": "data/ACWI_2016-06-17_to_2025-06-16_advanced.csv",
-        "IJR": "data/IJR_2016-06-17_to_2025-06-16_advanced.csv",
-        "IVE": "data/IVE_2016-06-17_to_2025-06-16_advanced.csv",
-        "IVV": "data/IVV_2016-06-17_to_2025-06-16_advanced.csv",
-        "IVW": "data/IVW_2016-06-17_to_2025-06-16_advanced.csv",
-        "QUAL": "data/QUAL_2016-06-17_to_2025-06-16_advanced.csv",
-        "SPMO": "data/SPMO_2016-06-17_to_2025-06-16_advanced.csv",
-        "SPY": "data/SPY_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLB": "data/XLB_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLC": "data/XLC_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLE": "data/XLE_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLF": "data/XLF_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLI": "data/XLI_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLK": "data/XLK_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLP": "data/XLP_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLRE": "data/XLRE_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLU": "data/XLU_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLV": "data/XLV_2016-06-17_to_2025-06-17_advanced.csv",
-        "XLY": "data/XLY_2016-06-17_to_2025-06-17_advanced.csv"
-    }
-    
+    # Dynamically find all CSV files in the data directory
+    data_files = [f for f in os.listdir('data') if f.endswith('_advanced.csv')]
+    if not data_files:
+        st.error("No data files found in the 'data/' directory.")
+        return None, None, None, None
+        
+    tickers = {os.path.basename(f).split('_')[0]: os.path.join('data', f) for f in data_files}
+
     # Factor proxies mapping
     factors = {
         "us": "SPY",
@@ -54,6 +39,12 @@ def load_data():
         "quality": "QUAL",
     }
     
+    # Check if all factor ETFs are present
+    for factor_tck in factors.values():
+        if factor_tck not in tickers:
+            st.error(f"Factor ETF '{factor_tck}' not found in data files. Please add its CSV file.")
+            return None, None, None, None
+
     # Read and align all returns
     rets = {}
     for t, path in tickers.items():
@@ -61,7 +52,7 @@ def load_data():
             df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
             rets[t] = df["Close"].pct_change().dropna()
         else:
-            st.error(f"File not found: {path}")
+            st.error(f"File not found: {path}") # Should not happen with the new logic but good to keep
             return None, None, None, None
     
     R = pd.DataFrame(rets).dropna()
@@ -122,46 +113,85 @@ def optimize_weights(E, target):
     bounds = [(0, 1)] * n
     x0 = np.ones(n) / n
     
-    res = minimize(objective, x0, method="SLSQP", bounds=bounds, constraints=constraints)
-    if not res.success:
-        # Fall back to original method if constrained optimization fails
-        def simple_objective(w):
-            return np.sum((E.T.dot(w) - target)**2)
-        simple_cons = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
-        res = minimize(simple_objective, x0, method="SLSQP", bounds=bounds, constraints=simple_cons)
+    try:
+        res = minimize(objective, x0, method="SLSQP", bounds=bounds, constraints=constraints)
         if not res.success:
-            raise RuntimeError("Optimization failed: " + res.message)
-    
-    return res.x
+            # Fall back to original method if constrained optimization fails
+            def simple_objective(w):
+                return np.sum((E.T.dot(w) - target)**2)
+            simple_cons = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
+            res = minimize(simple_objective, x0, method="SLSQP", bounds=bounds, constraints=simple_cons)
+            if not res.success:
+                # If still failing, raise the error to be caught
+                raise RuntimeError("Optimization failed: " + res.message)
+        return res.x
+    except Exception as e:
+        # st.warning(f"Optimization failed for a subset. Details: {e}")
+        return None # Return None on failure
 
 def score_portfolio(etf_subset, exposures, target):
     """Score a portfolio subset"""
     E_sub = exposures.loc[list(etf_subset)].values
     w = optimize_weights(E_sub, target)
+    
+    # If optimization fails, return infinite error
+    if w is None:
+        return None, None, np.inf
+        
     port_exp = E_sub.T.dot(w)
     error = np.linalg.norm(port_exp - target)
     return w, port_exp, error
 
 def find_best_subset(exposures, target, n):
-    """Find the best n-ETF subset"""
-    best = (None, None, np.inf)
-    total_combinations = len(list(combinations(exposures.index, n)))
+    """Find the best n-ETF subset using a greedy forward selection algorithm."""
     
-    progress_bar = st.progress(0)
+    # Start with an empty set
+    best_set = []
+    best_error = np.inf
+
+    # Get the full list of available ETFs
+    all_etfs = list(exposures.index)
+    
+    # Status indicators
     status_text = st.empty()
-    
-    for i, combo in enumerate(combinations(exposures.index, n)):
-        progress = (i + 1) / total_combinations
-        progress_bar.progress(progress)
-        status_text.text(f"Evaluating combination {i+1} of {total_combinations}...")
+    progress_bar = st.progress(0)
+
+    for i in range(n):
+        status_text.text(f"Selecting ETF {i + 1} of {n}...")
         
-        w, pe, err = score_portfolio(combo, exposures, target)
-        if err < best[2]:
-            best = (combo, w, err)
+        # Find the best ETF to add to the current set
+        best_etf_to_add = None
+        current_best_error_for_step = np.inf
+        
+        # Iterate through the remaining ETFs
+        remaining_etfs = [etf for etf in all_etfs if etf not in best_set]
+        
+        for etf_to_add in remaining_etfs:
+            # Create a temporary set to evaluate
+            temp_set = best_set + [etf_to_add]
+            
+            # Score this temporary portfolio
+            _, _, error = score_portfolio(temp_set, exposures, target)
+            
+            if error < current_best_error_for_step:
+                current_best_error_for_step = error
+                best_etf_to_add = etf_to_add
+        
+        # Add the best ETF found in this step to our portfolio
+        if best_etf_to_add:
+            best_set.append(best_etf_to_add)
+            best_error = current_best_error_for_step
+        
+        # Update progress
+        progress_bar.progress((i + 1) / n)
+
+    # Final scoring of the selected portfolio
+    w, port_exp, error = score_portfolio(best_set, exposures, target)
     
-    progress_bar.empty()
     status_text.empty()
-    return best
+    progress_bar.empty()
+    
+    return best_set, w, error
 
 # Performance metrics calculation
 def calculate_performance_metrics(returns, benchmark_returns):
@@ -287,6 +317,18 @@ def main():
         step=1
     )
     
+    st.sidebar.subheader("ETF Universe")
+    all_available_etfs = sorted(list(tickers.keys()))
+    selected_etfs = st.sidebar.multiselect(
+        "Select ETFs to include in optimization",
+        options=all_available_etfs,
+        default=all_available_etfs
+    )
+
+    if len(selected_etfs) < n_etfs:
+        st.sidebar.warning(f"Please select at least {n_etfs} ETFs.")
+        return
+
     # Optimization button
     if st.sidebar.button("🚀 Optimize Portfolio", type="primary"):
         if abs(total_weight - 1.0) > 0.001:
@@ -296,9 +338,12 @@ def main():
         # Convert factor weights to array
         target = np.array([factor_weights[factor] for factor in factor_names])
         
+        # Filter exposures to only include selected ETFs
+        exposures_subset = exposures.loc[selected_etfs]
+
         # Run optimization
         with st.spinner(f"Finding optimal {n_etfs}-ETF portfolio..."):
-            combo, weights, error = find_best_subset(exposures, target, n_etfs)
+            combo, weights, error = find_best_subset(exposures_subset, target, n_etfs)
         
         # Store results in session state
         st.session_state.optimization_results = {
